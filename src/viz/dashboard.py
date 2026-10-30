@@ -125,6 +125,7 @@ class Dashboard:
         vm = vm.reshape(ZL.shape)
         vm[ZL > z_surf[None, :] + 2e-6] = np.nan
         return {"vm": vm, "xl1": xl1, "zl1": zl1, "W": W,
+                "a": c["a"], 
                 "hot": (c["cp"][0], c["cp"][1]),
                 "pin_local": (0.0, -p.r_rp), "p_max_hot": c["p_max"],
                 "profile_local": (surf_x[m], surf_z[m])}

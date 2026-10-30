@@ -32,7 +32,7 @@ def cycle_metrics(sim):
         zf = sim._get_zoom_field(k)
         vm = zf["vm"]
         iz, _ = np.unravel_index(np.nanargmax(vm), vm.shape)
-        a = zf["W"] / 20.0                    # valid while W not clamped
+        a = zf["a"]                  # valid while W not clamped
         print(f"  [.. ] theta={np.degrees(sim.thetas[k]):5.1f} deg  "
               f"vm/p_max = {np.nanmax(vm)/zf['p_max_hot']:.3f}  "
               f"@ depth = {zf['zl1'][iz]/a:.2f} a")
