@@ -22,9 +22,10 @@ ZOOM_NX, ZOOM_NZ, ZOOM_STRIDE = 260, 180, 2
 
 
 class Dashboard:
-    def __init__(self, p, n_frames=72, show_diagnostics=True):
+    def __init__(self, p, n_frames=72, show_diagnostics=True, lazy=False, interval=50):
         self.p, self.n_frames = p, n_frames
         self.show_diag = show_diagnostics
+        self.lazy = lazy
         self.thetas = np.linspace(0, 2 * np.pi, n_frames, endpoint=False)
         self._pending_rebuild = False
         self.tmpl = build_template()
@@ -39,7 +40,7 @@ class Dashboard:
         self._init_heatmaps()
         self._rebuild()
         self.anim = FuncAnimation(self.fig, self._update, frames=self.n_frames,
-                                  interval=50, blit=False, cache_frame_data=False)
+                                  interval=interval, blit=False, cache_frame_data=False)
 
     # ---------------- sliders ----------------
     def _make_sliders(self):
@@ -82,6 +83,9 @@ class Dashboard:
               f"in {time.time()-t0:.1f} s")
 
     def _compute_fields(self):
+        if self.lazy: # nothing up front; fields computed on first use and cached
+            self.full_fields, self.zoom_fields = {}, {}
+            return
         p = self.p
         self.full_fields, self.zoom_fields = {}, {}
         R_m = 1.06 * (p.R_p + p.r_rp + 2 * p.e)
@@ -124,6 +128,30 @@ class Dashboard:
                 "hot": (c["cp"][0], c["cp"][1]),
                 "pin_local": (0.0, -p.r_rp), "p_max_hot": c["p_max"],
                 "profile_local": (surf_x[m], surf_z[m])}
+
+    def _get_full_field(self, k):
+        kf = min(range(0, self.n_frames, FULL_STRIDE),
+                 key=lambda q: abs(q - k))
+        if kf not in self.full_fields:
+            r, p = self.results[kf], self.p
+            R_m = 1.06 * (p.R_p + p.r_rp + 2 * p.e)
+            xs = np.linspace(-R_m, R_m, FULL_N)
+            X, Y = np.meshgrid(xs, xs)
+            P = np.column_stack([X.ravel(), Y.ravel()])
+            inside = MplPath(np.column_stack([r["wx"], r["wy"]])
+                             ).contains_points(P)
+            cons = [c for c in contacts_from_frame(r)
+                    if c["p_max"] > 0.02 * r["p_max"].max()]  # loaded pins only
+            vm, _ = superpose_field(P[inside], cons, self.tmpl, p.nu)
+            out = np.full(P.shape[0], np.nan)
+            out[inside] = vm
+            self.full_fields[kf] = out.reshape(FULL_N, FULL_N)
+        return kf
+
+    def _get_zoom_field(self, k):
+        if k not in self.zoom_fields:
+            self.zoom_fields[k] = self._zoom_field(k)
+        return self.zoom_fields[k]
 
     # ---------------- static artists ----------------
     def _draw_static(self):
@@ -179,7 +207,7 @@ class Dashboard:
         self.vline.set_xdata([np.degrees(self.thetas[k])] * 2)
 
         # full-disc heatmap
-        kf = min(self.full_fields, key=lambda q: abs(q - k))
+        kf = self._get_full_field(k)
         R_m = 1.06 * (p.R_p + p.r_rp + 2 * p.e)
         vmax = 0.4 * pmaxes.max() / 1e6 if pmaxes.max() > 0 else 1.0
         self.im_full.set_data(np.ma.masked_invalid(self.full_fields[kf] / 1e6))
@@ -189,8 +217,7 @@ class Dashboard:
         self.ax_full.set_xlabel("x [mm]"); self.ax_full.set_ylabel("y [mm]")
 
         # zoom heatmap
-        kz = min(self.zoom_fields, key=lambda q: abs(q - k))
-        zf = self.zoom_fields[kz]
+        zf = self._get_zoom_field(k)
         zvm = np.ma.masked_invalid(zf["vm"] / 1e6)
         self.im_zoom.set_data(zvm)
         self.im_zoom.set_extent((zf["xl1"][0] * MM, zf["xl1"][-1] * MM,
